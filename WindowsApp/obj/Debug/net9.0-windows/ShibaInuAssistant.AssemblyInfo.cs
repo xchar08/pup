@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ShibaInuAssistant")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d334f84b49cd15d97067a98bfab1d3639a9341f0")]
 [assembly: System.Reflection.AssemblyProductAttribute("ShibaInuAssistant")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ShibaInuAssistant")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

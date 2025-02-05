@@ -658,3 +658,11 @@ ShibaInuAssistant/
    ```bash
    git clone https://your.repo.url/ShibaInuAssistant.git
    cd ShibaInuAssistant/WindowsApp
+
+{
+"NebiusApi": {
+    "Endpoint": "https://api.nebius.ai/v1/completions",
+    "ApiKey": "<add in your api key>",
+    "ModelId": "nebius/default-model"
+}
+}

@@ -1,7 +1,7 @@
 # ui.py
 from PyQt5.QtWidgets import QMainWindow, QWidget
 from PyQt5.QtGui import QPainter, QPixmap, QPen, QColor
-from PyQt5.QtCore import Qt, QTimer, QRectF
+from PyQt5.QtCore import Qt, QTimer, QRectF, pyqtSlot
 
 class CircularWidget(QWidget):
     def __init__(self, parent=None):
@@ -35,20 +35,17 @@ class CircularWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-
         # Draw circular background
         rect = QRectF(0, 0, self.width(), self.height())
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(30, 30, 30))
         painter.drawEllipse(rect)
-
         # Draw glow effect when active
         if self.active:
             pen = QPen(QColor(255, 215, 0, self.glow_alpha))  # Golden glow
             pen.setWidth(15)
             painter.setPen(pen)
             painter.drawEllipse(rect.adjusted(5, 5, -5, -5))
-
         # Draw the Shiba Inu logo centered within the circle
         if not self.pixmap.isNull():
             pix_size = min(self.width() - 40, self.height() - 40)
@@ -65,8 +62,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.widget)
         self.resize(220, 220)
 
+    @pyqtSlot()
     def startGlow(self):
         self.widget.start_glow()
 
+    @pyqtSlot()
     def stopGlow(self):
         self.widget.stop_glow()

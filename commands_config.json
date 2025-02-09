@@ -1,0 +1,39 @@
+{
+    "stop_music": {
+      "pattern": "stop currently playing music",
+      "action": "stop_music"
+    },
+    "start_music": {
+      "pattern": "start currently playing music",
+      "action": "start_music"
+    },
+    "translate_text": {
+      "pattern": "translate text",
+      "action": "translate_text"
+    },
+    "copy_diagram": {
+      "pattern": "copy the neural network diagram",
+      "action": "copy_neural_network_diagram"
+    },
+    "create_new_file": {
+      "pattern": "create a new file",
+      "action": "create_new_file"
+    },
+    "open_app": {
+      "pattern": "open app",
+      "action": "open_app"
+    },
+    "close_app": {
+      "pattern": "close app",
+      "action": "close_app"
+    },
+    "open_url": {
+      "pattern": "open url",
+      "action": "open_url"
+    },
+    "close_url": {
+      "pattern": "close url",
+      "action": "close_url"
+    }
+  }
+  

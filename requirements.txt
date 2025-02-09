@@ -3,3 +3,8 @@ SpeechRecognition
 PyAudio
 requests
 keyboard
+python-dotenv
+rapidfuzz
+pyautogui
+pytesseract
+langdetect

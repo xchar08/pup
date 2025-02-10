@@ -167,8 +167,8 @@ def execute_system_command(command):
             action_name = config.get("action")
             func = action_mapping.get(action_name)
             if func:
-                # For commands that require an argument (open/close app/url), extract it.
-                if action_name in ["open_app", "open_url", "close_app", "close_url"]:
+                # For commands that require an argument (open/close app/url, create new file), extract it.
+                if action_name in ["open_app", "open_url", "close_app", "close_url", "create_new_file"]:
                     arg = command[len(pattern):].strip()
                     func(arg)
                 else:

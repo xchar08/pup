@@ -30,9 +30,10 @@ def start_music():
     print("Toggled media playback (start).")
 
 # -------------------- LIVE TRANSLATION WINDOW --------------------
-# This class implements a live translation mode that updates periodically.
+# This class implements a live translation mode that updates periodically in a circular window.
 from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QPainterPath, QRegion
 import pyautogui
 import pytesseract
 import nltk
@@ -41,32 +42,62 @@ from langdetect import detect_langs
 class LiveTranslationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Live Translation")
-        self.resize(800, 400)
+        # Remove window frame for custom shape and allow translucency.
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        # Fixed square size.
+        self.resize(400, 400)
+        
         self.layout = QVBoxLayout(self)
         self.text_edit = QTextEdit(self)
         self.text_edit.setReadOnly(True)
+        # Use transparent background so the circular shape shows.
+        self.text_edit.setStyleSheet("background: transparent; color: black;")
         self.layout.addWidget(self.text_edit)
-        self.stop_button = QPushButton("Stop Live Translation", self)
-        self.stop_button.clicked.connect(self.close)
-        self.layout.addWidget(self.stop_button)
-
-        # Set up a QTimer to update translation every second.
+        
+        # Create a custom close button.
+        self.close_button = QPushButton("✕", self)
+        self.close_button.setStyleSheet(
+            """
+            QPushButton {
+                background: rgba(255, 0, 0, 0.7);
+                border: none;
+                color: white;
+                font-weight: bold;
+                border-radius: 15px;
+            }
+            QPushButton::hover {
+                background: rgba(255, 0, 0, 0.9);
+            }
+            """
+        )
+        self.close_button.resize(30, 30)
+        self.close_button.clicked.connect(self.close)
+        
+        # Timer for live translation updates.
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_translation)
-        self.timer.start(1000)  # update every 1000 milliseconds
+        self.timer.start(1000)  # update every 1 second
+
+    def resizeEvent(self, event):
+        # Create a circular mask over the square window.
+        path = QPainterPath()
+        path.addEllipse(self.rect())
+        region = QRegion(path.toFillPolygon().toPolygon())
+        self.setMask(region)
+        # Position the close button near the upper-right edge.
+        self.close_button.move(self.width() - 35, 5)
+        super().resizeEvent(event)
 
     def update_translation(self):
         # Ensure NLTK resources are available.
         nltk.download('punkt', quiet=True)
         nltk.download('punkt_tab', quiet=True)
 
-        # Capture a region centered on the current mouse pointer.
-        region_width, region_height = 800, 600
-        x, y = pyautogui.position()
-        region_left = max(0, x - region_width // 2)
-        region_top = max(0, y - region_height // 2)
-        screenshot = pyautogui.screenshot(region=(region_left, region_top, region_width, region_height))
+        # Capture a region matching the dialog’s size.
+        region_width, region_height = self.width(), self.height()
+        # For simplicity, capture from (0,0); adjust if desired.
+        screenshot = pyautogui.screenshot(region=(0, 0, region_width, region_height))
         extracted_text = pytesseract.image_to_string(screenshot)
         if not extracted_text.strip():
             self.text_edit.setPlainText("No text detected in the region.")
@@ -80,9 +111,14 @@ class LiveTranslationDialog(QDialog):
 
         translation_url = "https://api.mymemory.translated.net/get"
         translated_sentences = []
-        english_threshold = 0.95  # Only translate if less than 95% confidence for English.
+        english_threshold = 0.95  # Only translate if confidence in English is below 95%
 
         for sentence in sentences:
+            # Skip very short sentences.
+            if len(sentence.split()) < 3:
+                translated_sentences.append(sentence)
+                continue
+
             try:
                 langs = detect_langs(sentence)
             except Exception as e:
@@ -90,7 +126,14 @@ class LiveTranslationDialog(QDialog):
                 translated_sentences.append(sentence)
                 continue
 
-            # Determine the English probability (if available)
+            # Determine detected source language.
+            src_lang = langs[0].lang if langs else "auto"
+            # If detected as English, skip translation.
+            if src_lang == "en":
+                translated_sentences.append(sentence)
+                continue
+
+            # Otherwise, check if the English probability is high.
             english_prob = 0.0
             for lang in langs:
                 if lang.lang == "en":
@@ -98,24 +141,18 @@ class LiveTranslationDialog(QDialog):
                     break
 
             if english_prob >= english_threshold:
-                # Sentence is confidently English; do not translate.
                 translated_sentences.append(sentence)
             else:
-                # Otherwise, translate this sentence.
-                src_lang = langs[0].lang if langs else "auto"
-                params = {
-                    "q": sentence,
-                    "langpair": f"{src_lang}|en"
-                }
+                params = {"q": sentence, "langpair": f"{src_lang}|en"}
                 try:
                     response = requests.get(translation_url, params=params, timeout=10)
                     if response.status_code == 200:
                         data = response.json()
                         translation = data.get("responseData", {}).get("translatedText", "")
-                        if translation and translation.lower() != sentence.lower():
-                            translated_sentences.append(translation)
-                        else:
+                        if not translation or translation.strip().lower() == sentence.strip().lower():
                             translated_sentences.append(sentence)
+                        else:
+                            translated_sentences.append(translation)
                     else:
                         translated_sentences.append(sentence)
                 except Exception as e:
@@ -164,12 +201,9 @@ def create_new_file(command_str=None):
 
     # --- Parse the file name ---
     file_name = None
-    # Look for "named" followed by the desired name (up to "in" or end-of-string)
-    import re
     match_name = re.search(r"named\s+([^\s].*?)(?:\s+in\s+|$)", command_lower)
     if match_name:
         file_name = match_name.group(1).strip()
-        # Replace " dot " with "."
         file_name = file_name.replace(" dot ", ".").replace(" dot", ".").replace("dot ", ".")
     
     # --- Parse the directory ---
@@ -177,13 +211,10 @@ def create_new_file(command_str=None):
     match_dir = re.search(r"in\s+([^\s].*?)(?:\s+named|\s*$)", command_lower)
     if match_dir:
         dir_text = match_dir.group(1).strip()
-        # Remove common filler words.
         dir_text = dir_text.replace("my ", "").replace("folder", "").strip()
-        # If "document" is mentioned, assume the user's Documents folder.
         if "document" in dir_text:
             directory = os.path.join(home, "Documents")
         elif dir_text:
-            # Otherwise, assume it's a subfolder of the home directory.
             directory = os.path.join(home, dir_text.capitalize())
     
     # --- Determine the file type (for default extension) ---
@@ -204,28 +235,23 @@ def create_new_file(command_str=None):
             file_type = key
             break
 
-    # --- Decide on the extension ---
     if file_name and "." in file_name:
         ext = file_name.split(".")[-1]
     else:
         ext = default_extensions.get(file_type, default_file_type)
 
-    # --- Finalize the file name ---
     if not file_name:
         file_name = default_file_name + "." + ext
     else:
         if "." not in file_name:
             file_name = file_name + "." + ext
 
-    # --- Finalize the directory ---
     if not directory:
         directory = default_directory
 
     full_path = os.path.join(directory, file_name)
-    # Create the directory if it doesn't exist.
     os.makedirs(directory, exist_ok=True)
 
-    # --- Default content based on file extension ---
     if ext == "py":
         content = "# New Python file generated by Hey Miso\n\nprint('Hello from Hey Miso!')\n"
     elif ext == "txt":
@@ -277,8 +303,9 @@ def open_app(app_name=None):
         command_to_run = app_name
 
     try:
-        subprocess.Popen(command_to_run, shell=True)
-        opened_apps[app_name] = command_to_run
+        # Store the process handle instead of just the command string.
+        process_handle = subprocess.Popen(command_to_run, shell=True)
+        opened_apps[app_name] = process_handle
         print(f"Opened application: {app_name} using command: {command_to_run}")
     except Exception as e:
         print("Error opening application:", e)
@@ -371,6 +398,28 @@ def close_url(url_input=None):
             print(f"Error closing URL: {e}")
     else:
         QMessageBox.information(parent, "Close URL", "URL process not found.")
+
+# -------------------- MUSIC CONTROL COMMANDS --------------------
+def skip_music():
+    """
+    Skips to the next track by sending the universal media key "next track".
+    """
+    try:
+        keyboard.send("next track")
+        print("Skip current music command executed (next track).")
+    except Exception as e:
+        print("Error sending skip music command:", e)
+
+def previous_music():
+    """
+    Goes back to the previous track by sending the universal media key "previous track".
+    """
+    try:
+        keyboard.send("previous track")
+        print("Go back to last music command executed (previous track).")
+    except Exception as e:
+        print("Error sending previous music command:", e)
+# -------------------- END MUSIC CONTROL COMMANDS --------------------
 
 # (Re)initialize the dictionaries for process handles.
 opened_apps = {}

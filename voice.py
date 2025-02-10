@@ -5,7 +5,7 @@ from rapidfuzz import fuzz  # pip install rapidfuzz
 from PyQt5.QtCore import QTimer  # (not needed for our signal approach now)
 
 TARGET_WAKE_WORD = "hey miso"
-WAKE_WORD_THRESHOLD = 70  # Adjust threshold (0-100) to tolerate minor deviations
+WAKE_WORD_THRESHOLD = 65  # Adjust threshold (0-100) to tolerate minor deviations
 
 class VoiceListener:
     def __init__(self, main_window):

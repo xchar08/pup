@@ -1,7 +1,7 @@
 # ui.py
 from PyQt5.QtWidgets import QMainWindow, QWidget
 from PyQt5.QtGui import QPainter, QPixmap, QPen, QColor
-from PyQt5.QtCore import Qt, QTimer, QRectF, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, QRectF, pyqtSlot, pyqtSignal
 
 class CircularWidget(QWidget):
     def __init__(self, parent=None):
@@ -55,12 +55,28 @@ class CircularWidget(QWidget):
             painter.drawPixmap(int(x), int(y), scaled)
 
 class MainWindow(QMainWindow):
+    # Define signals to communicate with the main thread.
+    commandReceived = pyqtSignal(str)
+    startGlowSignal = pyqtSignal()
+    stopGlowSignal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Hey Miso Assistant")
         self.widget = CircularWidget(self)
         self.setCentralWidget(self.widget)
         self.resize(220, 220)
+
+        # Connect the signals to their respective slots.
+        self.commandReceived.connect(self.handle_command)
+        self.startGlowSignal.connect(self.startGlow)
+        self.stopGlowSignal.connect(self.stopGlow)
+
+    @pyqtSlot(str)
+    def handle_command(self, command):
+        # Import here to avoid circular dependency issues.
+        from commands import process_command
+        process_command(command)
 
     @pyqtSlot()
     def startGlow(self):

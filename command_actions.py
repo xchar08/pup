@@ -93,28 +93,40 @@ def create_new_file():
     except Exception as e:
         print("Error creating/opening file:", e)
 
-def open_app():
-    parent = QApplication.activeWindow()
-    app_path, ok = QInputDialog.getText(parent, "Open App", "Enter application path or name:")
-    if not ok or not app_path.strip():
-        print("No application specified.")
-        return
-    app_path = app_path.strip()
-    try:
-        # Use subprocess.Popen to open the app and store its process handle.
-        proc = subprocess.Popen(app_path, shell=True)
-        opened_apps[app_path] = proc
-        print(f"Opened application: {app_path}")
-    except Exception as e:
-        QMessageBox.warning(parent, "Open App Error", f"Error opening application: {e}")
+def open_app(app_name=None):
+    """
+    Opens an application using the provided app name.
+    If no app name is provided, falls back to asking the user.
+    """
+    if app_name is None or app_name.strip() == "":
+        parent = QApplication.activeWindow()
+        app_path, ok = QInputDialog.getText(parent, "Open App", "Enter application path or name:")
+        if not ok or not app_path.strip():
+            print("No application specified.")
+            return
+        app_name = app_path.strip()
+    else:
+        app_name = app_name.strip()
 
-def close_app():
+    try:
+        # Attempt to open the app.
+        # (On Windows, if the app is in your PATH or registered, this should work.)
+        proc = subprocess.Popen(app_name, shell=True)
+        opened_apps[app_name] = proc
+        print(f"Opened application: {app_name}")
+    except Exception as e:
+        print("Error opening application:", e)
+
+def close_app(app_name=None):
     parent = QApplication.activeWindow()
-    app_name, ok = QInputDialog.getText(parent, "Close App", "Enter application name to close:")
-    if not ok or not app_name.strip():
-        print("No application specified.")
-        return
-    app_name = app_name.strip()
+    if app_name is None or app_name.strip() == "":
+        app_name, ok = QInputDialog.getText(parent, "Close App", "Enter application name to close:")
+        if not ok or not app_name.strip():
+            print("No application specified.")
+            return
+        app_name = app_name.strip()
+    else:
+        app_name = app_name.strip()
     proc = opened_apps.get(app_name)
     if proc:
         proc.terminate()
@@ -124,50 +136,79 @@ def close_app():
     else:
         QMessageBox.information(parent, "Close App", "Application not found among open apps.")
 
-def open_url():
-    parent = QApplication.activeWindow()
-    url, ok = QInputDialog.getText(parent, "Open URL", "Enter URL to open:")
-    if not ok or not url.strip():
-        print("No URL specified.")
-        return
-    url = url.strip()
-    # Fuzzy processing: if url doesn't start with http:// or https://, attempt to complete it
-    if not (url.startswith("http://") or url.startswith("https://")):
-        url = url.replace(" ", "")
-        if "." not in url:
-            url += ".com"
-        url = "https://www." + url
-    try:
-        # Attempt to launch with Chrome to obtain a process handle
-        proc = subprocess.Popen(["chrome", url], shell=True)
-        opened_urls[url] = proc
-        print(f"Opened URL: {url}")
-    except Exception as e:
-        import webbrowser
-        webbrowser.open(url)
-        print(f"Opened URL using webbrowser: {url}")
+def open_url(url_input=None):
+    """
+    Opens a URL based on the provided string.
+    If the string matches a known website (like 'wikipedia' or 'google'),
+    it opens the corresponding homepage. Otherwise, it attempts to build a URL.
+    """
+    if url_input is None or url_input.strip() == "":
+        parent = QApplication.activeWindow()
+        url, ok = QInputDialog.getText(parent, "Open URL", "Enter URL to open:")
+        if not ok or not url.strip():
+            print("No URL specified.")
+            return
+        url_input = url.strip()
+    else:
+        url_input = url_input.strip()
 
-def close_url():
+    # Define a dictionary of known websites.
+    known_websites = {
+        "google": "https://www.google.com",
+        "wikipedia": "https://www.wikipedia.org",
+        "youtube": "https://www.youtube.com",
+        "facebook": "https://www.facebook.com",
+        "twitter": "https://www.twitter.com",
+        "reddit": "https://www.reddit.com",
+        # Add more as needed.
+    }
+
+    lower_input = url_input.lower()
+    final_url = None
+    for key, website in known_websites.items():
+        if key in lower_input:
+            final_url = website
+            break
+    if final_url is None:
+        # If no match was found, try to build a URL.
+        final_url = url_input.replace(" ", "")
+        if not (final_url.startswith("http://") or final_url.startswith("https://")):
+            if "." not in final_url:
+                final_url += ".com"
+            final_url = "https://www." + final_url
+
+    try:
+        webbrowser.open(final_url)
+        print(f"Opened URL: {final_url}")
+    except Exception as e:
+        print(f"Error opening URL: {e}")
+
+def close_url(url_input=None):
     parent = QApplication.activeWindow()
-    url, ok = QInputDialog.getText(parent, "Close URL", "Enter URL to close:")
-    if not ok or not url.strip():
-        print("No URL specified.")
-        return
-    url = url.strip()
-    if not (url.startswith("http://") or url.startswith("https://")):
-        url = url.replace(" ", "")
-        if "." not in url:
-            url += ".com"
-        url = "https://www." + url
-    proc = opened_urls.get(url)
+    if url_input is None or url_input.strip() == "":
+        url, ok = QInputDialog.getText(parent, "Close URL", "Enter URL to close:")
+        if not ok or not url.strip():
+            print("No URL specified.")
+            return
+        url_input = url.strip()
+    else:
+        url_input = url_input.strip()
+
+    # Process the URL similar to open_url.
+    if not (url_input.startswith("http://") or url_input.startswith("https://")):
+        url_input = url_input.replace(" ", "")
+        if "." not in url_input:
+            url_input += ".com"
+        url_input = "https://www." + url_input
+    proc = opened_urls.get(url_input)
     if proc:
         proc.terminate()
         proc.wait()
-        print(f"Closed URL: {url}")
-        del opened_urls[url]
+        print(f"Closed URL: {url_input}")
+        del opened_urls[url_input]
     else:
         QMessageBox.information(parent, "Close URL", "URL process not found.")
 
-# Global dictionaries to store process handles
+# (Re)initialize the dictionaries for process handles.
 opened_apps = {}
 opened_urls = {}

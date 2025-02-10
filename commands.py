@@ -98,7 +98,6 @@ def execute_nebius_instructions(instructions):
     """
     instructions_lower = instructions.lower()
     if "click on" in instructions_lower:
-        # Naively extract target text after "click on"
         idx = instructions_lower.find("click on")
         target = instructions_lower[idx + len("click on"):].split()[0]
         print("Attempting to click on element matching:", target)
@@ -129,22 +128,27 @@ def execute_nebius_instructions(instructions):
         print("No actionable instructions found in:", instructions)
 
 def execute_system_command(command):
+    print("Processing command:", command)
     lower_command = command.lower()
     matched = False
     for key, config in command_config.items():
         pattern = config.get("pattern", "").lower()
-        if pattern in lower_command:
+        if lower_command.startswith(pattern):
             action_name = config.get("action")
             func = action_mapping.get(action_name)
             if func:
-                func()
+                # For commands that require an argument (open/close app/url), extract it.
+                if action_name in ["open_app", "open_url", "close_app", "close_url"]:
+                    arg = command[len(pattern):].strip()
+                    func(arg)
+                else:
+                    func()
                 matched = True
                 break
     if not matched:
         print("Command not recognized locally. Forwarding to Nebius API...")
         reply = call_nebius_api(command)
         if reply:
-            # If reply contains actionable instructions from Nebius, execute them.
             if any(keyword in reply.lower() for keyword in ["click on", "type", "press"]):
                 execute_nebius_instructions(reply)
             elif "\n" in reply and (reply.lstrip().startswith("import") or 

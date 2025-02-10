@@ -2,8 +2,7 @@
 import time
 import speech_recognition as sr
 from rapidfuzz import fuzz  # pip install rapidfuzz
-from commands import process_command
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer  # (not needed for our signal approach now)
 
 TARGET_WAKE_WORD = "hey miso"
 WAKE_WORD_THRESHOLD = 70  # Adjust threshold (0-100) to tolerate minor deviations
@@ -50,11 +49,12 @@ class VoiceListener:
         while True:
             if self.listen_for_wake_word():
                 print("Wake word detected!")
-                # Schedule UI glow start in the main thread
-                QTimer.singleShot(0, self.main_window.startGlow)
+                # Emit the start glow signal (executed on the main thread)
+                self.main_window.startGlowSignal.emit()
                 command = self.listen_for_command()
                 if command:
-                    process_command(command)
-                # Schedule UI glow stop in the main thread
-                QTimer.singleShot(0, self.main_window.stopGlow)
+                    # Emit the command string so that it gets processed on the main thread.
+                    self.main_window.commandReceived.emit(command)
+                # Emit the stop glow signal (executed on the main thread)
+                self.main_window.stopGlowSignal.emit()
             time.sleep(0.5)

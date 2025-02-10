@@ -6,6 +6,7 @@ import webbrowser
 import requests
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import QApplication, QMessageBox, QInputDialog
+from rapidfuzz import fuzz
 
 # Load environment variables
 load_dotenv()
@@ -95,8 +96,9 @@ def create_new_file():
 
 def open_app(app_name=None):
     """
-    Opens an application using the provided app name.
-    If no app name is provided, falls back to asking the user.
+    Opens an application based on the provided name.
+    If no name is provided, falls back to asking the user.
+    Uses fuzzy matching against a dictionary of known apps.
     """
     if app_name is None or app_name.strip() == "":
         parent = QApplication.activeWindow()
@@ -107,13 +109,42 @@ def open_app(app_name=None):
         app_name = app_path.strip()
     else:
         app_name = app_name.strip()
+    
+    # Define a dictionary of known apps.
+    # For Windows, using "cmd /c start ..." lets you launch many registered apps.
+    known_apps = {
+        "spotify": "spotify",
+        "microsoft edge": "cmd /c start microsoft-edge:",
+        "edge": "cmd /c start microsoft-edge:",
+        "chrome": "chrome",
+        "google chrome": "chrome",
+        "notepad": "notepad",
+        "calculator": "calc"
+        # Add more known apps as needed.
+    }
+    
+    # Use fuzzy matching to find the best match.
+    best_match = None
+    best_score = 0
+    lower_input = app_name.lower()
+    for key in known_apps:
+        score = fuzz.partial_ratio(lower_input, key)
+        if score > best_score:
+            best_score = score
+            best_match = key
+    
+    # If a good match is found (adjust threshold as needed), use that command.
+    if best_score > 50:
+        command_to_run = known_apps[best_match]
+        print(f"Interpreted '{app_name}' as '{best_match}'.")
+    else:
+        command_to_run = app_name  # fallback: try using the raw input
 
     try:
-        # Attempt to open the app.
-        # (On Windows, if the app is in your PATH or registered, this should work.)
-        proc = subprocess.Popen(app_name, shell=True)
-        opened_apps[app_name] = proc
-        print(f"Opened application: {app_name}")
+        # Run the command.
+        subprocess.Popen(command_to_run, shell=True)
+        opened_apps[app_name] = command_to_run
+        print(f"Opened application: {app_name} using command: {command_to_run}")
     except Exception as e:
         print("Error opening application:", e)
 
@@ -129,10 +160,13 @@ def close_app(app_name=None):
         app_name = app_name.strip()
     proc = opened_apps.get(app_name)
     if proc:
-        proc.terminate()
-        proc.wait()
-        print(f"Closed application: {app_name}")
-        del opened_apps[app_name]
+        try:
+            proc.terminate()
+            proc.wait()
+            print(f"Closed application: {app_name}")
+            del opened_apps[app_name]
+        except Exception as e:
+            print("Error closing application:", e)
     else:
         QMessageBox.information(parent, "Close App", "Application not found among open apps.")
 
@@ -202,10 +236,13 @@ def close_url(url_input=None):
         url_input = "https://www." + url_input
     proc = opened_urls.get(url_input)
     if proc:
-        proc.terminate()
-        proc.wait()
-        print(f"Closed URL: {url_input}")
-        del opened_urls[url_input]
+        try:
+            proc.terminate()
+            proc.wait()
+            print(f"Closed URL: {url_input}")
+            del opened_urls[url_input]
+        except Exception as e:
+            print(f"Error closing URL: {e}")
     else:
         QMessageBox.information(parent, "Close URL", "URL process not found.")
 

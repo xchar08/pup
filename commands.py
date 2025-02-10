@@ -94,25 +94,55 @@ action_mapping = {
 def execute_nebius_instructions(instructions):
     """
     Parses Nebius instructions for actionable keywords and executes them.
-    This example checks for "click on", "type", and "press" commands.
+    This version improves the "click on" logic by grouping OCR data by line.
     """
     instructions_lower = instructions.lower()
     if "click on" in instructions_lower:
-        idx = instructions_lower.find("click on")
-        target = instructions_lower[idx + len("click on"):].split()[0]
+        # Get the entire phrase after "click on"
+        target = instructions_lower.split("click on", 1)[1].strip()
         print("Attempting to click on element matching:", target)
         screenshot = pyautogui.screenshot()
         data = pytesseract.image_to_data(screenshot, output_type=pytesseract.Output.DICT)
-        found = False
-        for i, word in enumerate(data["text"]):
-            if word and fuzz.ratio(word.lower(), target) > 80:
-                x = data["left"][i] + data["width"][i] // 2
-                y = data["top"][i] + data["height"][i] // 2
-                pyautogui.click(x, y)
-                print(f"Clicked on element '{word}' at ({x},{y}).")
-                found = True
-                break
-        if not found:
+        # Group words by (block_num, line_num)
+        lines = {}
+        n = len(data["text"])
+        for i in range(n):
+            word = data["text"][i].strip()
+            if not word:
+                continue
+            block = data["block_num"][i]
+            line = data["line_num"][i]
+            key = (block, line)
+            if key not in lines:
+                lines[key] = {
+                    "words": [],
+                    "left": data["left"][i],
+                    "top": data["top"][i],
+                    "right": data["left"][i] + data["width"][i],
+                    "bottom": data["top"][i] + data["height"][i]
+                }
+            else:
+                # Update bounding box for this line.
+                lines[key]["left"] = min(lines[key]["left"], data["left"][i])
+                lines[key]["top"] = min(lines[key]["top"], data["top"][i])
+                lines[key]["right"] = max(lines[key]["right"], data["left"][i] + data["width"][i])
+                lines[key]["bottom"] = max(lines[key]["bottom"], data["top"][i] + data["height"][i])
+            lines[key]["words"].append(word)
+        # Find the line with the best fuzzy match to the target.
+        best_line = None
+        best_score = 0
+        for key, line_data in lines.items():
+            line_text = " ".join(line_data["words"])
+            score = fuzz.ratio(line_text.lower(), target)
+            if score > best_score:
+                best_score = score
+                best_line = line_data
+        if best_line and best_score > 50:
+            x = best_line["left"] + (best_line["right"] - best_line["left"]) // 2
+            y = best_line["top"] + (best_line["bottom"] - best_line["top"]) // 2
+            pyautogui.click(x, y)
+            print(f"Clicked on element '{' '.join(best_line['words'])}' at ({x},{y}). (Score: {best_score})")
+        else:
             print("Element not found on screen.")
     elif "type" in instructions_lower:
         idx = instructions_lower.find("type")

@@ -5,7 +5,8 @@ import requests
 import subprocess
 import keyboard
 from dotenv import load_dotenv
-from PyQt5.QtWidgets import QApplication, QDialog, QVBoxLayout, QTextEdit, QPushButton, QLabel
+from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QTextEdit,
+                             QPushButton, QLabel, QMessageBox, QInputDialog)
 from command_actions import (
     stop_music, start_music, translate_text, copy_neural_network_diagram,
     create_new_file, open_app, close_app, open_url, close_url
@@ -13,6 +14,7 @@ from command_actions import (
 import pyautogui
 import pytesseract
 from rapidfuzz import fuzz
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,8 +22,11 @@ API_KEY = os.getenv("NB_STUDIO_API_KEY")
 if not API_KEY:
     raise ValueError("NB_STUDIO_API_KEY not found in environment variables. Please set it in your .env file.")
 
-# Nebius API endpoint for chat completions
+# Nebius API endpoint for chat completions (used as a fallback if needed)
 NEBIUS_API_URL = "https://api.studio.nebius.ai/v1/chat/completions"
+
+# Global variable to hold pending Nebius queries (for follow-up questions)
+pending_nebius_context = None
 
 def call_nebius_api(prompt):
     headers = {
@@ -69,6 +74,64 @@ def confirm_and_run_script(script, parent_window):
             print("Error executing script:", e)
     threading.Thread(target=run_script, daemon=True).start()
 
+def handle_nebius_choice_response(reply):
+    """
+    Handles a Nebius reply that contains a list of choices.
+    It extracts numbered choices, prompts the user to pick one,
+    shows a preview of the selected code, and if the user types 'go',
+    writes the code to a temporary Python file and executes it.
+    """
+    import tempfile
+    import subprocess
+
+    # Extract numbered choices using a regex.
+    pattern = re.compile(r"^\s*(\d+)\.\s*(.+)$", re.MULTILINE)
+    choices = pattern.findall(reply)
+    if not choices:
+        return False
+
+    # Build a display string for the choices.
+    display_text = "Nebius returned multiple choices. Please choose one by entering its number:\n\n"
+    for num, text in choices:
+        display_text += f"{num}. {text}\n"
+
+    parent = QApplication.activeWindow()
+    choice_str, ok = QInputDialog.getText(parent, "Nebius Choices", display_text)
+    if not ok or not choice_str.strip().isdigit():
+        QMessageBox.information(parent, "Choice Selection", "Invalid choice entered.")
+        return False
+
+    choice_num = int(choice_str.strip())
+    selected_choice = None
+    for num, text in choices:
+        if int(num) == choice_num:
+            selected_choice = text
+            break
+
+    if selected_choice is None:
+        QMessageBox.information(parent, "Choice Selection", "No matching choice found.")
+        return False
+
+    # Preview the code and ask for confirmation.
+    preview, ok = QInputDialog.getMultiLineText(parent, "Preview Code",
+                "The following code will be executed.\nType 'go' to run, or anything else to cancel:",
+                selected_choice)
+    if not ok or preview.strip().lower() != "go":
+        QMessageBox.information(parent, "Cancelled", "Execution cancelled.")
+        return False
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w", encoding="utf-8") as temp_file:
+            temp_file.write(selected_choice)
+            temp_path = temp_file.name
+        subprocess.Popen(["python", temp_path])
+        QMessageBox.information(parent, "Execution", f"Executing code from temporary file: {temp_path}")
+    except Exception as e:
+        QMessageBox.warning(parent, "Execution Error", f"Error executing code: {e}")
+        return False
+
+    return True
+
 def load_command_config():
     config_path = os.path.join(os.path.dirname(__file__), "commands_config.json")
     if os.path.exists(config_path):
@@ -98,12 +161,10 @@ def execute_nebius_instructions(instructions):
     """
     instructions_lower = instructions.lower()
     if "click on" in instructions_lower:
-        # Get the entire phrase after "click on"
         target = instructions_lower.split("click on", 1)[1].strip()
         print("Attempting to click on element matching:", target)
         screenshot = pyautogui.screenshot()
         data = pytesseract.image_to_data(screenshot, output_type=pytesseract.Output.DICT)
-        # Group words by (block_num, line_num)
         lines = {}
         n = len(data["text"])
         for i in range(n):
@@ -122,13 +183,11 @@ def execute_nebius_instructions(instructions):
                     "bottom": data["top"][i] + data["height"][i]
                 }
             else:
-                # Update bounding box for this line.
                 lines[key]["left"] = min(lines[key]["left"], data["left"][i])
                 lines[key]["top"] = min(lines[key]["top"], data["top"][i])
                 lines[key]["right"] = max(lines[key]["right"], data["left"][i] + data["width"][i])
                 lines[key]["bottom"] = max(lines[key]["bottom"], data["top"][i] + data["height"][i])
             lines[key]["words"].append(word)
-        # Find the line with the best fuzzy match to the target.
         best_line = None
         best_score = 0
         for key, line_data in lines.items():
@@ -158,6 +217,13 @@ def execute_nebius_instructions(instructions):
         print("No actionable instructions found in:", instructions)
 
 def execute_system_command(command):
+    """
+    Processes a command. If it matches one of our locally mapped commands,
+    it runs it. Otherwise, the command is forwarded to Nebius.
+    If Nebius returns a follow-up question or a list of choices,
+    this function handles the response accordingly.
+    """
+    global pending_nebius_context
     print("Processing command:", command)
     lower_command = command.lower()
     matched = False
@@ -167,8 +233,8 @@ def execute_system_command(command):
             action_name = config.get("action")
             func = action_mapping.get(action_name)
             if func:
-                # For commands that require an argument (open/close app/url, create new file), extract it.
-                if action_name in ["open_app", "open_url", "close_app", "close_url", "create_new_file"]:
+                if action_name in ["open_app", "open_url", "close_app", "close_url",
+                                   "create_new_file", "translate_text"]:
                     arg = command[len(pattern):].strip()
                     func(arg)
                 else:
@@ -176,10 +242,40 @@ def execute_system_command(command):
                 matched = True
                 break
     if not matched:
+        # If there is a pending Nebius context, combine it with the new command.
+        if pending_nebius_context is not None:
+            full_query = pending_nebius_context + " " + command
+            print("Processing follow-up query:", full_query)
+            reply = call_nebius_api(full_query)
+            pending_nebius_context = None
+            if reply:
+                if any(keyword in reply.lower() for keyword in ["click on", "type", "press"]):
+                    execute_nebius_instructions(reply)
+                elif "\n" in reply and (reply.lstrip().startswith("import") or 
+                                         reply.lstrip().startswith("def") or 
+                                         reply.lstrip().startswith("#")):
+                    parent = QApplication.activeWindow()
+                    confirm_and_run_script(reply, parent)
+                else:
+                    print("Nebius API response:", reply)
+            else:
+                print("No response from Nebius API.")
+            return
+
+        # Otherwise, forward the command to Nebius.
         print("Command not recognized locally. Forwarding to Nebius API...")
         reply = call_nebius_api(command)
         if reply:
-            if any(keyword in reply.lower() for keyword in ["click on", "type", "press"]):
+            # Check if the reply contains multiple choices.
+            if len(re.findall(r"^\s*\d+\.\s+", reply, re.MULTILINE)) > 1:
+                if handle_nebius_choice_response(reply):
+                    return
+            if reply.strip().endswith("?"):
+                pending_nebius_context = reply
+                print("Nebius API asks:", reply)
+                parent = QApplication.activeWindow()
+                QMessageBox.information(parent, "Nebius Query", reply)
+            elif any(keyword in reply.lower() for keyword in ["click on", "type", "press"]):
                 execute_nebius_instructions(reply)
             elif "\n" in reply and (reply.lstrip().startswith("import") or 
                                      reply.lstrip().startswith("def") or 
@@ -192,8 +288,32 @@ def execute_system_command(command):
             print("No response from Nebius API.")
 
 def process_command(command):
+    """
+    Called with each recognized command. If there is a pending Nebius query awaiting
+    an answer, this function combines the pending context with the new command and processes it.
+    Otherwise, it processes the command normally (supporting chaining with " and ").
+    """
+    global pending_nebius_context
+    if pending_nebius_context is not None:
+        full_query = pending_nebius_context + " " + command
+        print("Processing follow-up query:", full_query)
+        reply = call_nebius_api(full_query)
+        pending_nebius_context = None
+        if reply:
+            if any(keyword in reply.lower() for keyword in ["click on", "type", "press"]):
+                execute_nebius_instructions(reply)
+            elif "\n" in reply and (reply.lstrip().startswith("import") or 
+                                     reply.lstrip().startswith("def") or 
+                                     reply.lstrip().startswith("#")):
+                parent = QApplication.activeWindow()
+                confirm_and_run_script(reply, parent)
+            else:
+                print("Nebius API response:", reply)
+        else:
+            print("No response from Nebius API.")
+        return
+
     print("Processing command:", command)
-    # Allow command chaining using " and "
     if " and " in command.lower():
         sub_commands = command.split(" and ")
         for sub in sub_commands:

@@ -8,3 +8,4 @@ rapidfuzz
 pyautogui
 pytesseract
 langdetect
+nltk
